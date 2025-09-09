@@ -7,6 +7,16 @@ This tool was designed as a **creative, educational, and experimental framework*
 
 ---
 
+## Disclaimer
+
+The Neuro-Brainwave Generator is a creative and educational tool.
+It is not a medical device and makes no claims of diagnosis, treatment, or guaranteed cognitive outcomes.
+Use responsibly and only in safe, controlled environments.
+
+By using this software, you acknowledge that it is provided "as is" without warranty of any kind.
+
+---
+
 ## 🎯 Purpose
 
 The **Neuro-Brainwave Generator** aims to provide:
