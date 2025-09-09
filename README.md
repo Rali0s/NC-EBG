@@ -5,6 +5,11 @@
 A Python-based project that generates audio/visual brainwave entrainment patterns for cognitive enhancement, focus, and relaxation.  
 This tool was designed as a **creative, educational, and experimental framework** for exploring neuro-modulation concepts such as binaural beats, frequency following response, and layered entrainment routines.
 
+## Goal:
+The primary purpose of this project is to drop the brains cognitive processing down from 'Waking-Consciousness' into 'Deep-Theta' while looping processing waves in sequental from back from 'Alpha -> Down to Theta' again, twice. While this is occuring, we are attempting to overload the brains processing without causing discomform to alter its state.
+
+More to come!
+
 ---
 
 ## Disclaimer
