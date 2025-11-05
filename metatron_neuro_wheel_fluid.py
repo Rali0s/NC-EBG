@@ -455,11 +455,10 @@ class NeuroWheelApp:
         if seed is not None:
             random.seed(seed)
         pygame.init()
-        self.screen = pygame.display.set_mode((self.config.width, self.config.height), pygame.SCALED | pygame.RESIZABLE)
         pygame.display.set_caption("Metatron Neuro Wheel — FLUID Lines & Rays")
         self.clock = pygame.time.Clock()
-        self.font_small = pygame.font.SysFont(self.config.font_family, self.config.font_size)
-        self.apply_scale(self.current_scale)
+        self.allow_scaled_flag = True
+        self.screen = self.apply_scale(self.current_scale)
 
     def create_state(self) -> WheelState:
         return WheelState(
@@ -474,12 +473,21 @@ class NeuroWheelApp:
     def clamp_scale_index(self, index: int) -> int:
         return max(0, min(index, len(self.scale_presets) - 1))
 
-    def apply_scale(self, scale: float) -> None:
+    def configure_display(self, width: int, height: int) -> pygame.Surface:
+        flags = pygame.RESIZABLE
+        if self.allow_scaled_flag:
+            try:
+                return pygame.display.set_mode((width, height), pygame.SCALED | flags)
+            except pygame.error:
+                self.allow_scaled_flag = False
+        return pygame.display.set_mode((width, height), flags)
+
+    def apply_scale(self, scale: float) -> pygame.Surface:
         scale = max(0.25, scale)
         width = max(self.config.min_width, int(self.base_width * scale))
         height = max(self.config.min_height, int(self.base_height * scale))
         base_radius = max(120, int(self.base_radius * scale))
-        self.screen = pygame.display.set_mode((width, height), pygame.SCALED | pygame.RESIZABLE)
+        self.screen = self.configure_display(width, height)
         self.config.width = width
         self.config.height = height
         self.config.base_radius = base_radius
@@ -492,6 +500,7 @@ class NeuroWheelApp:
         font_size = max(14, int(self.base_font_size * scale))
         self.font_small = pygame.font.SysFont(self.config.font_family, font_size)
         self.current_scale = scale
+        return self.screen
 
     def build_hud(self, state: WheelState) -> pygame.Surface:
         index = self.clamp_scale_index(state.scale_index)
