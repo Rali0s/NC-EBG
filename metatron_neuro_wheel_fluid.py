@@ -54,6 +54,12 @@ class WheelConfig:
     show_ch_10: bool = True
     show_ch_25: bool = True
     show_ch_50: bool = True
+    font_family: str = "Arial"
+    font_size: int = 22
+    min_width: int = 960
+    min_height: int = 600
+    scale_presets: Tuple[float, ...] = (0.75, 1.0, 1.25, 1.5)
+    default_scale_index: int = 1
 
 
 @dataclass
@@ -412,6 +418,8 @@ class WheelState:
     show_ch_25: bool
     show_ch_50: bool
     rays_on: bool = True
+    scale_index: int = 0
+    scale_menu_open: bool = False
 
 
 class NeuroWheelApp:
@@ -429,13 +437,29 @@ class NeuroWheelApp:
         self.band_schedule = list(band_schedule)
         self.subcycle_outer = list(subcycle_outer)
         self.subcycle_mid = list(subcycle_mid)
+        self.scale_presets = tuple(scale for scale in self.config.scale_presets if scale > 0)
+        if not self.scale_presets:
+            self.scale_presets = (1.0,)
+        self.default_scale_index = max(0, min(self.config.default_scale_index, len(self.scale_presets) - 1))
+        self.base_width = self.config.width
+        self.base_height = self.config.height
+        self.base_radius = self.config.base_radius
+        self.base_inner_size = self.config.inner_size
+        self.base_mid_size = self.config.mid_size
+        self.base_outer_size = self.config.outer_size
+        self.base_ring_width = self.config.ring_width
+        self.base_font_size = self.config.font_size
+        self.base_metatron_glow_widths = tuple(self.metatron_config.seg_glow_widths)
+        self.current_scale_index = self.default_scale_index
+        self.current_scale = self.scale_presets[self.current_scale_index]
         if seed is not None:
             random.seed(seed)
         pygame.init()
         self.screen = pygame.display.set_mode((self.config.width, self.config.height), pygame.SCALED | pygame.RESIZABLE)
         pygame.display.set_caption("Metatron Neuro Wheel — FLUID Lines & Rays")
         self.clock = pygame.time.Clock()
-        self.font_small = pygame.font.SysFont("Arial", 22)
+        self.font_small = pygame.font.SysFont(self.config.font_family, self.config.font_size)
+        self.apply_scale(self.current_scale)
 
     def create_state(self) -> WheelState:
         return WheelState(
@@ -444,17 +468,79 @@ class NeuroWheelApp:
             show_ch_10=self.config.show_ch_10,
             show_ch_25=self.config.show_ch_25,
             show_ch_50=self.config.show_ch_50,
+            scale_index=self.current_scale_index,
         )
 
+    def clamp_scale_index(self, index: int) -> int:
+        return max(0, min(index, len(self.scale_presets) - 1))
+
+    def apply_scale(self, scale: float) -> None:
+        scale = max(0.25, scale)
+        width = max(self.config.min_width, int(self.base_width * scale))
+        height = max(self.config.min_height, int(self.base_height * scale))
+        base_radius = max(120, int(self.base_radius * scale))
+        self.screen = pygame.display.set_mode((width, height), pygame.SCALED | pygame.RESIZABLE)
+        self.config.width = width
+        self.config.height = height
+        self.config.base_radius = base_radius
+        self.config.inner_size = max(6, int(self.base_inner_size * scale))
+        self.config.mid_size = max(6, int(self.base_mid_size * scale))
+        self.config.outer_size = max(6, int(self.base_outer_size * scale))
+        self.config.ring_width = max(1, int(self.base_ring_width * scale))
+        scaled_glow = tuple(max(1, int(round(glow_width * scale))) for glow_width in self.base_metatron_glow_widths)
+        self.metatron_config.seg_glow_widths = scaled_glow
+        font_size = max(14, int(self.base_font_size * scale))
+        self.font_small = pygame.font.SysFont(self.config.font_family, font_size)
+        self.current_scale = scale
+
     def build_hud(self, state: WheelState) -> pygame.Surface:
-        return self.font_small.render(
-            (
-                f"ESC quit  R restart  SPACE emergency   +/- pulse {state.center_pulse_hz:.1f}Hz   "
-                f"[ / ] speed {state.speed_trim:.2f}   1/2/3 overlays   L rays"
-            ),
-            True,
-            (120, 120, 135),
+        index = self.clamp_scale_index(state.scale_index)
+        scale_percent = int(round(self.scale_presets[index] * 100))
+        hud_text = (
+            f"ESC quit  R restart  SPACE emergency   +/- pulse {state.center_pulse_hz:.1f}Hz   "
+            f"[ / ] speed {state.speed_trim:.2f}   1/2/3 overlays   L rays   M scale {scale_percent}%"
         )
+        return self.font_small.render(hud_text, True, (120, 120, 135))
+
+    def build_scale_menu(self, state: WheelState) -> pygame.Surface:
+        index = self.clamp_scale_index(state.scale_index)
+        padding = 14
+        spacing = 6
+        header = self.font_small.render("Scale presets", True, (215, 215, 225))
+        option_surfaces: List[pygame.Surface] = []
+        max_width = header.get_width()
+        for idx, scale in enumerate(self.scale_presets):
+            percent = int(round(scale * 100))
+            width = int(self.base_width * scale)
+            height = int(self.base_height * scale)
+            prefix = "➤" if idx == index else "  "
+            label = f"{prefix} {percent}%  {width}x{height}"
+            color = (235, 235, 245) if idx == index else (170, 170, 185)
+            surf = self.font_small.render(label, True, color)
+            option_surfaces.append(surf)
+            max_width = max(max_width, surf.get_width())
+        instruction = self.font_small.render("↑/↓ choose  Enter apply  M close", True, (150, 150, 165))
+        total_height = (
+            header.get_height()
+            + len(option_surfaces) * (self.font_small.get_linesize() + spacing)
+            + instruction.get_height()
+            + padding * 3
+        )
+        menu_surface = pygame.Surface((max_width + padding * 2, total_height), pygame.SRCALPHA)
+        menu_surface.fill((12, 14, 22, 215))
+        y = padding
+        menu_surface.blit(header, (padding, y))
+        y += header.get_height() + spacing
+        line_height = self.font_small.get_linesize()
+        for idx, surf in enumerate(option_surfaces):
+            if idx == index:
+                highlight_rect = pygame.Rect(6, y - 2, menu_surface.get_width() - 12, line_height + 4)
+                pygame.draw.rect(menu_surface, (60, 70, 95, 160), highlight_rect, border_radius=6)
+            menu_surface.blit(surf, (padding, y))
+            y += line_height + spacing
+        y += spacing
+        menu_surface.blit(instruction, (padding, y))
+        return menu_surface
 
     def pause_until_restart(self) -> None:
         self.screen.fill((0, 0, 0))
@@ -478,12 +564,27 @@ class NeuroWheelApp:
                 pygame.quit()
                 sys.exit(0)
             if event.type == pygame.KEYDOWN:
+                if state.scale_menu_open:
+                    if event.key in (pygame.K_ESCAPE, pygame.K_m):
+                        state.scale_menu_open = False
+                    elif event.key in (pygame.K_UP, pygame.K_w):
+                        state.scale_index = self.clamp_scale_index(state.scale_index - 1)
+                    elif event.key in (pygame.K_DOWN, pygame.K_s):
+                        state.scale_index = self.clamp_scale_index(state.scale_index + 1)
+                    elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                        state.scale_menu_open = False
+                    elif pygame.K_1 <= event.key <= pygame.K_9:
+                        choice = event.key - pygame.K_1
+                        state.scale_index = self.clamp_scale_index(choice)
+                    continue
                 if event.key == pygame.K_ESCAPE:
                     pygame.quit()
                     sys.exit(0)
-                elif event.key in (pygame.K_PLUS, pygame.K_EQUALS):
+                elif event.key == pygame.K_m:
+                    state.scale_menu_open = not state.scale_menu_open
+                elif event.key in (pygame.K_PLUS, pygame.K_EQUALS, pygame.K_KP_PLUS):
                     state.center_pulse_hz = min(24.0, state.center_pulse_hz + 0.5)
-                elif event.key in (pygame.K_MINUS, pygame.K_UNDERSCORE):
+                elif event.key in (pygame.K_MINUS, pygame.K_UNDERSCORE, pygame.K_KP_MINUS):
                     state.center_pulse_hz = max(1.0, state.center_pulse_hz - 0.5)
                 elif event.key == pygame.K_LEFTBRACKET:
                     state.speed_trim = max(0.6, state.speed_trim - 0.05)
@@ -506,6 +607,9 @@ class NeuroWheelApp:
 
     def run_scene(self) -> None:
         state = self.create_state()
+        state.scale_index = self.clamp_scale_index(state.scale_index)
+        self.apply_scale(self.scale_presets[state.scale_index])
+        self.current_scale_index = state.scale_index
         start_time = time.time()
         inner_count = self.config.inner_nodes
         mid_count = self.config.mid_nodes
@@ -528,16 +632,25 @@ class NeuroWheelApp:
         sub_start = band_start
         burst_until = band_start + self.config.burst_length
 
-        inner_radius = int(self.config.base_radius * self.config.inner_radius_ratio)
-        mid_radius = int(self.config.base_radius * self.config.mid_radius_ratio)
-        outer_radius = int(self.config.base_radius * self.config.outer_radius_ratio)
-
         while True:
             dt = self.clock.tick(self.config.fps_cap) / 1000.0
             now = time.time()
             elapsed = now - start_time
+            prev_scale_index = state.scale_index
             if self.handle_events(state):
+                self.current_scale_index = self.clamp_scale_index(state.scale_index)
                 return
+            state.scale_index = self.clamp_scale_index(state.scale_index)
+            if state.scale_index != prev_scale_index:
+                self.apply_scale(self.scale_presets[state.scale_index])
+                self.current_scale_index = state.scale_index
+                fm = FluidMetatron(
+                    lambda: cxcy(self.screen), self.config.base_radius, self.config.foreground, self.metatron_config
+                )
+                links.clear()
+                inner_last = [0.0] * inner_count
+                mid_last = [0.0] * mid_count
+                outer_last = [0.0] * outer_count
 
             band_stage = self.band_schedule[schedule_index]
             state.center_pulse_hz = band_stage.frequency
@@ -610,6 +723,9 @@ class NeuroWheelApp:
             lit_ray_angles = fm.smooth_angles if state.rays_on else []
 
             cx, cy = cxcy(self.screen)
+            inner_radius = int(self.config.base_radius * self.config.inner_radius_ratio)
+            mid_radius = int(self.config.base_radius * self.config.mid_radius_ratio)
+            outer_radius = int(self.config.base_radius * self.config.outer_radius_ratio)
             inner_pts = ring_points(cx, cy, inner_radius, inner_count, phi_inner)
             mid_pts = ring_points(cx, cy, mid_radius, mid_count, phi_mid)
             outer_pts = ring_points(cx, cy, outer_radius, outer_count, phi_outer)
@@ -674,10 +790,19 @@ class NeuroWheelApp:
             )
             self.screen.blit(hud_surface, (16, 16))
             self.screen.blit(band_surface, (16, self.screen.get_height() - 36))
+            if state.scale_menu_open:
+                menu_surface = self.build_scale_menu(state)
+                margin = 16
+                self.screen.blit(
+                    menu_surface,
+                    (self.screen.get_width() - menu_surface.get_width() - margin, margin),
+                )
             pygame.display.flip()
 
             if elapsed >= self.config.scene_seconds:
                 break
+
+        self.current_scale_index = self.clamp_scale_index(state.scale_index)
 
     def run_forever(self) -> None:
         while True:
