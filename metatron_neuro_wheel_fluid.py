@@ -3,7 +3,7 @@ import random
 import sys
 import time
 from dataclasses import dataclass
-from typing import Callable, List, Sequence, Tuple
+from typing import Callable, List, Sequence, Set, Tuple
 
 import pygame
 
@@ -335,30 +335,110 @@ class FluidMetatron:
         surface.blit(highlight, (0, 0))
 
 # ---------------- Rings/Glyphs & links ----------------
-def draw_ring_icons(surface: pygame.Surface, points: Sequence[Vec2], size: int, kinds: Sequence[int], glyph_count: int, color: Color, alpha: int = 108) -> None:
+def draw_ring_icons(
+    surface: pygame.Surface,
+    points: Sequence[Vec2],
+    size: int,
+    kinds: Sequence[int],
+    glyph_count: int,
+    color: Color,
+    alpha: int = 108,
+    rotations: Sequence[float] | None = None,
+    flips: Sequence[int] | None = None,
+) -> None:
     overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
     tint = (*color, alpha)
     for idx, (x, y) in enumerate(points):
-        glyph = kinds[idx] % glyph_count
+        glyph = kinds[idx] % glyph_count if glyph_count else 0
         pygame.draw.circle(overlay, tint, (int(x), int(y)), size, 2)
-        rotation = idx * 0.3
+        rotation = rotations[idx] if rotations and idx < len(rotations) else idx * 0.3
+        flip = flips[idx] if flips and idx < len(flips) else 1
         if glyph == 0:
-            pygame.draw.polygon(overlay, tint, poly_points(x, y, 3, int(size * 0.9), rotation), 2)
+            offset = math.pi / 6 if flip < 0 else 0.0
+            pygame.draw.polygon(overlay, tint, poly_points(x, y, 3, int(size * 0.9), rotation + offset), 2)
         elif glyph == 1:
-            pygame.draw.polygon(overlay, tint, poly_points(x, y, 6, int(size * 0.9), rotation), 2)
+            offset = math.pi / 12 if flip < 0 else 0.0
+            pygame.draw.polygon(overlay, tint, poly_points(x, y, 6, int(size * 0.9), rotation + offset), 2)
         elif glyph == 2:
             pygame.draw.polygon(overlay, tint, poly_points(x, y, 3, int(size * 0.9), rotation), 2)
-            pygame.draw.polygon(overlay, tint, poly_points(x, y, 3, int(size * 0.9), rotation + math.pi / 3), 2)
+            pygame.draw.polygon(
+                overlay,
+                tint,
+                poly_points(x, y, 3, int(size * 0.9), rotation + (math.pi / 3 if flip >= 0 else math.pi / 2)),
+                2,
+            )
         elif glyph == 3:
-            pygame.draw.line(overlay, tint, (x - size * 0.8, y), (x + size * 0.8, y), 2)
-            pygame.draw.line(overlay, tint, (x, y - size * 0.8), (x, y + size * 0.8), 2)
+            span = size * 0.8
+            if flip >= 0:
+                pygame.draw.line(overlay, tint, (x - span, y), (x + span, y), 2)
+                pygame.draw.line(overlay, tint, (x, y - span), (x, y + span), 2)
+            else:
+                pygame.draw.line(overlay, tint, (x - span, y - span), (x + span, y + span), 2)
+                pygame.draw.line(overlay, tint, (x - span, y + span), (x + span, y - span), 2)
         elif glyph == 4:
             for k in range(6):
-                angle = rotation + 2 * math.pi * k / 6
+                angle = rotation + flip * 2 * math.pi * k / 6
                 pygame.draw.circle(overlay, tint, (int(x + size * 0.7 * math.cos(angle)), int(y + size * 0.7 * math.sin(angle))), 2, 2)
         else:
-            pygame.draw.arc(overlay, tint, (x - size, y - size, 2 * size, 2 * size), rotation, rotation + math.pi * 0.8, 2)
+            sweep = math.pi * 0.8
+            if flip >= 0:
+                start = rotation
+                end = rotation + sweep
+            else:
+                end = rotation
+                start = rotation - sweep
+            if end < start:
+                start, end = end, start
+            pygame.draw.arc(overlay, tint, (x - size, y - size, 2 * size, 2 * size), start, end, 2)
     surface.blit(overlay, (0, 0))
+
+
+def random_glyph_index(glyph_count: int, forbidden: Set[int] | Sequence[int] | None = None) -> int:
+    glyph_count = max(1, glyph_count)
+    if glyph_count == 1:
+        return 0
+    banned = {value % glyph_count for value in forbidden or [] if glyph_count > 1}
+    choices = [value for value in range(glyph_count) if value not in banned]
+    if not choices:
+        choices = list(range(glyph_count))
+    return random.choice(choices)
+
+
+def build_glyph_ring(count: int, glyph_count: int) -> Tuple[List[int], List[float], List[int]]:
+    glyph_count = max(1, glyph_count)
+    kinds: List[int] = []
+    rotations: List[float] = []
+    flips: List[int] = []
+    for idx in range(count):
+        forbidden: Set[int] = set()
+        if glyph_count > 1 and kinds:
+            forbidden.add(kinds[-1])
+        if glyph_count > 2 and idx == count - 1 and kinds:
+            forbidden.add(kinds[0])
+        kind = random_glyph_index(glyph_count, forbidden)
+        kinds.append(kind)
+        rotations.append(random.random() * math.tau)
+        flips.append(1 if idx % 2 == 0 else -1)
+    return kinds, rotations, flips
+
+
+def advance_glyph_ring_slot(
+    kinds: List[int], rotations: List[float], flips: List[int], index: int, glyph_count: int
+) -> None:
+    if not kinds:
+        return
+    glyph_count = max(1, glyph_count)
+    current = kinds[index] if glyph_count > 0 else 0
+    neighbours: Set[int] = set()
+    if glyph_count > 1:
+        neighbours.add(current)
+    if glyph_count > 2 and len(kinds) > 1:
+        neighbours.add(kinds[(index - 1) % len(kinds)])
+        neighbours.add(kinds[(index + 1) % len(kinds)])
+    kinds[index] = random_glyph_index(glyph_count, neighbours)
+    rotations[index] = random.random() * math.tau
+    if flips:
+        flips[index] = -flips[index] if flips[index] != 0 else 1
 
 
 def draw_links(surface: pygame.Surface, links: List[dict], config: WheelConfig, color: Color) -> None:
@@ -635,9 +715,9 @@ class NeuroWheelApp:
         mid_count = self.config.mid_nodes
         outer_count = self.config.outer_nodes
         glyph_kinds = self.config.glyph_kinds
-        inner_kinds = [i % glyph_kinds for i in range(inner_count)]
-        mid_kinds = [(i * 3) % glyph_kinds for i in range(mid_count)]
-        outer_kinds = [(i * 2) % glyph_kinds for i in range(outer_count)]
+        inner_kinds, inner_rotations, inner_flips = build_glyph_ring(inner_count, glyph_kinds)
+        mid_kinds, mid_rotations, mid_flips = build_glyph_ring(mid_count, glyph_kinds)
+        outer_kinds, outer_rotations, outer_flips = build_glyph_ring(outer_count, glyph_kinds)
         inner_last = [0.0] * inner_count
         mid_last = [0.0] * mid_count
         outer_last = [0.0] * outer_count
@@ -668,6 +748,9 @@ class NeuroWheelApp:
                     lambda: cxcy(self.screen), self.config.base_radius, self.config.foreground, self.metatron_config
                 )
                 links.clear()
+                inner_kinds, inner_rotations, inner_flips = build_glyph_ring(inner_count, glyph_kinds)
+                mid_kinds, mid_rotations, mid_flips = build_glyph_ring(mid_count, glyph_kinds)
+                outer_kinds, outer_rotations, outer_flips = build_glyph_ring(outer_count, glyph_kinds)
                 inner_last = [0.0] * inner_count
                 mid_last = [0.0] * mid_count
                 outer_last = [0.0] * outer_count
@@ -750,9 +833,39 @@ class NeuroWheelApp:
             mid_pts = ring_points(cx, cy, mid_radius, mid_count, phi_mid)
             outer_pts = ring_points(cx, cy, outer_radius, outer_count, phi_outer)
 
-            draw_ring_icons(self.screen, inner_pts, self.config.inner_size, inner_kinds, glyph_kinds, self.config.foreground, alpha=104)
-            draw_ring_icons(self.screen, mid_pts, self.config.mid_size, mid_kinds, glyph_kinds, self.config.foreground, alpha=98)
-            draw_ring_icons(self.screen, outer_pts, self.config.outer_size, outer_kinds, glyph_kinds, self.config.foreground, alpha=132)
+            draw_ring_icons(
+                self.screen,
+                inner_pts,
+                self.config.inner_size,
+                inner_kinds,
+                glyph_kinds,
+                self.config.foreground,
+                alpha=104,
+                rotations=inner_rotations,
+                flips=inner_flips,
+            )
+            draw_ring_icons(
+                self.screen,
+                mid_pts,
+                self.config.mid_size,
+                mid_kinds,
+                glyph_kinds,
+                self.config.foreground,
+                alpha=98,
+                rotations=mid_rotations,
+                flips=mid_flips,
+            )
+            draw_ring_icons(
+                self.screen,
+                outer_pts,
+                self.config.outer_size,
+                outer_kinds,
+                glyph_kinds,
+                self.config.foreground,
+                alpha=132,
+                rotations=outer_rotations,
+                flips=outer_flips,
+            )
 
             def gate_by_rays(point: Vec2) -> bool:
                 if not state.rays_on:
@@ -777,7 +890,9 @@ class NeuroWheelApp:
                     and gate_by_rays(midpoint)
                 ):
                     outer_kinds[oi] = inner_kinds[inner_index]
-                    inner_kinds[inner_index] = (inner_kinds[inner_index] + 1) % glyph_kinds
+                    outer_rotations[oi] = inner_rotations[inner_index]
+                    outer_flips[oi] = -inner_flips[inner_index] if outer_flips else -1
+                    advance_glyph_ring_slot(inner_kinds, inner_rotations, inner_flips, inner_index, glyph_kinds)
                     inner_last[inner_index] = now_time
                     links.append({"t0": now_time, "p_in": (ix, iy), "p_out": (ox, oy)})
 
@@ -794,7 +909,9 @@ class NeuroWheelApp:
                     and gate_by_rays(midpoint)
                 ):
                     mid_kinds[mi] = inner_kinds[inner_index]
-                    inner_kinds[inner_index] = (inner_kinds[inner_index] + 1) % glyph_kinds
+                    mid_rotations[mi] = inner_rotations[inner_index]
+                    mid_flips[mi] = -inner_flips[inner_index] if mid_flips else -1
+                    advance_glyph_ring_slot(inner_kinds, inner_rotations, inner_flips, inner_index, glyph_kinds)
                     inner_last[inner_index] = now_time
                     links.append({"t0": now_time, "p_in": (ix, iy), "p_out": (mx, my)})
 
