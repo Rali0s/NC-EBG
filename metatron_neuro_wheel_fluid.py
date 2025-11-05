@@ -254,6 +254,16 @@ class FluidMetatron:
         self.ray_angles = [i * math.tau / ray_count for i in range(ray_count)]
         self.smooth_angles = list(self.ray_angles)
 
+    def refresh_geometry(self) -> None:
+        new_cx, new_cy = self.get_center()
+        if (new_cx, new_cy) == (self.cx, self.cy):
+            return
+        dx = new_cx - self.cx
+        dy = new_cy - self.cy
+        self.cx, self.cy = new_cx, new_cy
+        self.pts = [(x + dx, y + dy) for (x, y) in self.pts]
+        self.segments = [((a[0] + dx, a[1] + dy), (b[0] + dx, b[1] + dy)) for (a, b) in self.segments]
+
     def update_rays(self, t: float) -> None:
         ray_count = len(self.ray_angles)
         if ray_count == 0:
@@ -278,6 +288,7 @@ class FluidMetatron:
         return dist < spread, 1.0 - min(1.0, dist / spread)
 
     def step_targets(self) -> None:
+        self.refresh_geometry()
         for idx, (a, b) in enumerate(self.segments):
             midpoint = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
             ok, weight = self.gate(midpoint)
