@@ -802,7 +802,7 @@ class NeuroWheelApp:
                 sub_phase = None
                 burst_until = now + self.config.burst_length
 
-            phi_inner = 2 * math.pi * inner_hz * (now - start_time)
+            phi_inner = -2 * math.pi * inner_hz * (now - start_time)
             phi_mid = 2 * math.pi * mid_hz * (now - start_time)
             phi_outer = 2 * math.pi * outer_hz * (now - start_time)
 
